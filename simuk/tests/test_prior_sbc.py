@@ -254,6 +254,28 @@ def test_compute_rank_statistics_transform_not_callable():
         sbc.compute_rank_statistics(transform=123)
 
 
+def test_compute_rank_statistics_recompute_with_new_transform():
+    sbc = simuk.SBC(
+        centered_eight,
+        num_simulations=2,
+        sample_kwargs={"draws": 5, "tune": 5},
+    )
+    sbc.run_simulations()
+    # With the default identity transform, theta keeps its vector shape
+    assert sbc.simulations["prior_sbc"]["theta"].shape[-1] == 8
+
+    num_posteriors = len(sbc.posteriors)
+    recomputed = sbc.compute_rank_statistics(
+        transform=lambda param_name, param_value: np.mean(param_value)
+    )
+    assert "prior_sbc" in recomputed
+    # The mean transform reduces the vector parameter to a scalar test quantity
+    assert recomputed["prior_sbc"]["theta"].shape == (1, 2)
+    # Recomputation reuses the stored fits instead of rerunning simulations
+    assert len(sbc.posteriors) == num_posteriors
+    assert sbc._simulations_complete == 2
+
+
 def test_sbc_run_simulations_keep_fits_false():
     sbc = simuk.SBC(
         centered_eight,
