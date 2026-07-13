@@ -14,28 +14,26 @@ References
 """
 
 import logging
-import traceback
 from copy import copy
 from importlib.metadata import version
 
+# Both backends are optional: these imports only provide the names used by the
+# engine-detection checks in SBC.__init__, which short-circuit before touching
+# a name whose backend is not installed.
 try:
     import pymc as pm
 except ImportError:
     pass
 try:
-    import jax
-    from numpyro.handlers import seed, trace
-    from numpyro.infer import MCMC, Predictive
     from numpyro.infer.mcmc import MCMCKernel
 except ImportError:
     pass
 
-import inspect
-from collections.abc import Mapping
-
 import numpy as np
-from arviz_base import dict_to_dataset, extract, from_dict, from_numpyro
+from arviz_base import from_dict
 from tqdm import tqdm
+
+_log = logging.getLogger(__name__)
 
 
 class quiet_logging:
@@ -215,22 +213,37 @@ class SBC:
         keep_fits=True,
         progress_bar=True,
     ):
+        self.num_simulations = num_simulations
+        self.seed = seed
+        self._seeds = self._get_seeds()
+
         if hasattr(model, "basic_RVs") and isinstance(model, pm.Model):
+            from simuk.pymc_adapter import PymcAdapter  # noqa: PLC0415
+
             self.engine = "pymc"
             self.model = model
+            self.adapter = PymcAdapter(self.model, simulator, trace, augment_observed, update_data)
         elif hasattr(model, "formula"):
+            from simuk.pymc_adapter import PymcAdapter  # noqa: PLC0415
+
             self.engine = "bambi"
             model.build()
             self.bambi_model = model
             self.model = model.backend.model
             self.formula = model.formula
             self.new_data = copy(model.data)
+            self.adapter = PymcAdapter(self.model, simulator, trace, augment_observed, update_data)
         elif isinstance(model, MCMCKernel):
+            # runtime import so an environment with only Pymc can run SBC over Pymc models.
+            from simuk.numpyro_adapter import NumpyroAdapter  # noqa: PLC0415
+
             self.engine = "numpyro"
             self.numpyro_model = model
             self.model = self.numpyro_model.model
-            self.run_simulations = self._run_simulations_numpyro
             self.data_dir = data_dir if data_dir is not None else {}
+            self.adapter = NumpyroAdapter(
+                self.data_dir, self.numpyro_model, self.model, simulator, self._seeds[0]
+            )
         else:
             raise ValueError(
                 "model should be one of pymc.Model, bambi.Model, or numpyro.infer.mcmc.MCMCKernel"
@@ -251,47 +264,21 @@ class SBC:
             sample_kwargs.setdefault("progressbar", False)
             sample_kwargs.setdefault("compute_convergence_checks", False)
         self.sample_kwargs = sample_kwargs
-
-        self.num_simulations = num_simulations
-        self.seed = seed
-        self._seeds = self._get_seeds()
-
-        self._extract_model_info()
-        self.simulations = {name: [] for name in self.var_names}
+        self.simulations = {name: [] for name in self.adapter.var_names}
         self._simulations_complete = 0
         self.posteriors = []
         self.keep_fits = keep_fits
-        self.ref_params = None
 
         if simulator is not None and not callable(simulator):
             raise ValueError("simulator should be a function or None")
-        if simulator is not None and self.observed_vars:
+        if simulator is not None and self.adapter.observed_vars:
             logging.warning(
                 "Provided model contains both observed variables and a simulator. "
                 "Ignoring observed variables and using the simulator instead."
             )
-        if simulator is None and not self.observed_vars and self.engine == "pymc":
-            # Ideally, we could raise an error early for `numpyro` also,
-            # but `factor` also produces 'observed_vars'
-            raise ValueError(
-                "There are no observed variables, and PyMC will not generate predictive "
-                "samples for both Prior and Posterior SBC. Either change the model or "
-                "specify a simulator with the `simulator` argument."
-            )
+        if simulator is None:
+            self.adapter.stop_if_cant_run_without_simulator()
 
-        if simulator is None and self.engine == "numpyro":
-            if not self.observed_model_vars:
-                raise ValueError(
-                    "There are no observed variables we can condition on, and NumPyro "
-                    "will not generate prior predictive samples. Either change the model "
-                    "or specify a simulator with the `simulator` argument."
-                )
-            missing = [name for name in self.observed_model_vars if name not in self.data_dir]
-            if missing:
-                raise ValueError(
-                    "The following model parameters are missing from data_dir: "
-                    + ", ".join(sorted(missing))
-                )
         self.simulator = simulator
 
         self._transform = lambda param_name, param_value: param_value
@@ -343,255 +330,10 @@ class SBC:
             if trace is not None:
                 logging.warning("`trace` is only used for Posterior SBC. Ignoring...")
 
-    def _extract_model_info(self):
-        """Extract observed and free variables from the model.
-
-        Also records the baseline state for Posterior SBC.
-        """
-        if self.engine == "numpyro":
-            self.model_params = set(inspect.signature(self.model).parameters.keys())
-            with trace() as tr:
-                with seed(rng_seed=int(self._seeds[0])):
-                    self.numpyro_model.model(**self.data_dir)
-            self.var_names = [
-                name
-                for name, site in tr.items()
-                if site["type"] == "sample" and not site.get("is_observed", False)
-            ]
-            self.observed_vars = [
-                name
-                for name, site in tr.items()
-                if site["type"] == "sample" and site.get("is_observed", False)
-            ]
-            # Observed model variables are those that are marked as observed
-            # and are also model function parameters in order to be able to condition on them.
-            # For instance, this is used to filter out factor variables that are marked as observed
-            # but cannot be conditioned on.
-            self.observed_model_vars = [
-                name for name in self.observed_vars if name in self.model_params
-            ]
-
-        else:
-            observed_var_nodes = [obs_rv for obs_rv in self.model.observed_RVs]
-            self.observed_vars = [obs.name for obs in observed_var_nodes]
-            self.var_names = [v.name for v in self.model.free_RVs]
-            # Stores what observed values are given by pm.Data
-            self.observed_rvs_to_pm_data = {
-                var.name: (
-                    self.model.rvs_to_values[var].name
-                    if hasattr(self.model.rvs_to_values[var], "get_value")
-                    else None
-                )
-                for var in observed_var_nodes
-            }
-            self.model_baseline_state = self._get_baseline_state(self.model)
-
-    def _get_baseline_state(self, model):
-        """Extract the current mutable data and coordinates from a PyMC model."""
-        baseline_data = {}
-
-        # Extract Mutable Data
-        for var in model.data_vars:
-            if hasattr(var, "get_value"):
-                baseline_data[var.name] = var.get_value(borrow=False)
-
-        # Extract Coordinates
-        # Convert the internal PyMC coordinate object to a standard dictionary
-        baseline_coords = dict(model.coords)
-
-        return {"data": baseline_data, "coords": baseline_coords}
-
-    def _reset_model_state(self, model, model_state):
-        """Reset the state of PyMC model."""
-        with model:
-            pm.set_data(model_state["data"], coords=model_state["coords"])
-
     def _get_seeds(self):
         """Set the random seed, and generate seeds for all the simulations."""
         rng = np.random.default_rng(self.seed)
         return rng.integers(0, 2**30, size=self.num_simulations)
-
-    def _get_simulator_data(self, free_rv_samples):
-        """Run the user-defined simulator to obtain predictive samples.
-
-        These samples can be generated from either prior or posterior samples.
-        """
-        # Deal with custom simulator
-        pred = []
-        for i in range(free_rv_samples.sizes["sample"]):
-            params = {
-                var: free_rv_samples[var].isel(sample=i).values for var in free_rv_samples.data_vars
-            }
-            params["seed"] = self._seeds[i]
-            try:
-                res = self.simulator(**params)
-            except Exception as e:
-                raise ValueError(
-                    f"Error generating prior predictive sample with parameters {params}: {e}."
-                )
-
-            if not isinstance(res, Mapping):
-                raise TypeError(f"Simulator must return a dictionary, got {type(res)}")
-
-            pred.append(res)
-
-        pred = dict_to_dataset(
-            {key: np.stack([pp[key] for pp in pred]) for key in pred[0]},
-            sample_dims=["sample"],
-            coords={**free_rv_samples.coords},
-        )
-
-        return pred
-
-    def _get_prior_predictive_samples(self):
-        """Generate samples to use for the simulations."""
-        with self.model:
-            idata = pm.sample_prior_predictive(
-                draws=self.num_simulations, random_seed=self._seeds[0]
-            )
-            prior = extract(idata, group="prior", keep_dataset=True)
-
-            if self.simulator is None:
-                prior_pred = extract(idata, group="prior_predictive", keep_dataset=True)
-                return prior, prior_pred
-
-            prior_pred = self._get_simulator_data(prior)
-
-        return prior, prior_pred
-
-    def _get_prior_predictive_samples_numpyro(self):
-        """Generate samples to use for the simulations using numpyro."""
-        predictive = Predictive(self.model, num_samples=self.num_simulations)
-        free_vars_data = {
-            k: v
-            for k, v in self.data_dir.items()
-            if k not in self.observed_vars and k in self.model_params
-        }
-        samples = predictive(jax.random.PRNGKey(self._seeds[0]), **free_vars_data)
-        prior = {k: v for k, v in samples.items() if k not in self.observed_vars}
-        if self.simulator:
-            results = []
-            for i, vals in enumerate(zip(*prior.values())):
-                params = dict(zip(prior.keys(), vals))
-                params["seed"] = self._seeds[i]
-                results.append(self.simulator(**params))
-            prior_pred = {key: [result[key] for result in results] for key in results[0]}
-        else:
-            prior_pred = {k: v for k, v in samples.items() if k in self.observed_model_vars}
-        return prior, prior_pred
-
-    def _get_posterior_samples(self, replicated_data):
-        """Fit the model and return posterior draws for one SBC iteration.
-
-        For **Prior SBC** the model is conditioned on the replicated data
-        alone. For **Posterior SBC** the original observed data and the
-        replicated data are combined (via ``augment_observed`` or the default
-        simple concatenation) and the model is conditioned on the augmented
-        dataset.
-
-        Parameters
-        ----------
-        replicated_data : dict[str, np.ndarray]
-            Simulated observations for the current iteration, keyed by
-            observed-variable name.
-
-        Returns
-        -------
-        xarray.Dataset
-            Posterior draws from the (augmented) model.
-        """
-        if self.method == "posterior":
-            observed_data = self.trace["observed_data"]
-
-            if self.augment_observed is not None:
-                augmented_data = self.augment_observed(
-                    self.model, observed_data, replicated_data, self._simulations_complete
-                )
-            else:
-                # Default: concatenate original and replicated observations
-                augmented_data = {
-                    var_name: np.concatenate(
-                        [observed_data[var_name].values, replicated_data[var_name]]
-                    )
-                    for var_name in self.observed_vars
-                }
-
-            if self.update_data is not None:
-                with self.model:
-                    self.update_data(self.model, augmented_data, self._simulations_complete)
-
-            vars_to_observations = augmented_data
-        else:
-            # Prior SBC simply uses the generated prior predictive replicated data
-            vars_to_observations = replicated_data
-
-        # Set observed data that are pm.Data objects if the user hasn't modified them yet.
-        # We enforce an np.array_equal check against the baseline to prevent PyMC size mismatch
-        # ValueErrors when the user's `update_data` hook or `pm.observe` already updated it.
-        with self.model:
-            for rv, data_node in self.observed_rvs_to_pm_data.items():
-                if data_node is not None and np.array_equal(
-                    self.model.named_vars[data_node].get_value(),
-                    self.model_baseline_state["data"][data_node],
-                ):
-                    pm.set_data(new_data={data_node: vars_to_observations[rv]})
-
-        try:
-            new_model = pm.observe(self.model, vars_to_observations=vars_to_observations)
-            with new_model:
-                check = pm.sample(
-                    **self.sample_kwargs, random_seed=self._seeds[self._simulations_complete]
-                )
-
-            posterior = extract(check, group="posterior", keep_dataset=True)
-        except Exception:
-            traceback.print_exc()
-            raise
-        finally:
-            # Always ensure the model is reset to its un-augmented baseline state
-            # so the next simulation iteration isn't corrupted by the previous loop's augmented data
-            self._reset_model_state(self.model, self.model_baseline_state)
-
-        return posterior
-
-    def _get_posterior_samples_numpyro(self, prior_predictive_draw):
-        """Generate posterior samples using numpyro conditioned to a prior predictive sample."""
-        mcmc = MCMC(self.numpyro_model, **self.sample_kwargs)
-        rng_seed = jax.random.PRNGKey(self._seeds[self._simulations_complete])
-
-        free_vars_data = {
-            k: v
-            for k, v in self.data_dir.items()
-            if k not in self.observed_model_vars and k in self.model_params
-        }
-        prior_predictive_args = {
-            k: v for k, v in prior_predictive_draw.items() if k in self.observed_model_vars
-        }
-        mcmc.run(rng_seed, **free_vars_data, **prior_predictive_args)
-        return from_numpyro(mcmc)["posterior"]
-
-    def _get_posterior_predictive_samples(self):
-        with self.model:
-            num_draws = self.trace["posterior"].sizes["draw"]
-            draw_indices = np.linspace(0, num_draws - 1, self.num_simulations, dtype=int)
-            thinned_idata = self.trace.isel(draw=draw_indices)
-            posterior = extract(thinned_idata, group="posterior", keep_dataset=True)
-
-            if self.simulator is None:
-                pm.sample_posterior_predictive(
-                    thinned_idata,
-                    extend_inferencedata=True,
-                    random_seed=self._seeds[0],
-                    progressbar=self.progress_bar,
-                )
-                posterior_pred = extract(
-                    thinned_idata, group="posterior_predictive", keep_dataset=True
-                )
-                return posterior, posterior_pred
-            else:
-                posterior_pred = self._get_simulator_data(posterior)
-
-            return posterior, posterior_pred
 
     def _convert_to_datatree(self):
         """Pack the rank-statistic arrays into an xarray DataTree.
@@ -648,45 +390,24 @@ class SBC:
         elif not callable(transform):
             raise ValueError("`transform` should be a function or None")
 
-        self.simulations = {name: [] for name in self.var_names}
+        self.simulations = {name: [] for name in self.kept_simulation_params.var_names}
 
         for idx, posterior in enumerate(self.posteriors):
-            self._compute_single_rank(idx, posterior, transform)
+            self._compute_single_rank(idx, posterior, transform, self.kept_simulation_params)
 
         self.simulations = {k: np.stack(v)[None, :] for k, v in self.simulations.items()}
         self._convert_to_datatree()
         return self.simulations
 
-    def _compute_single_rank(self, simulation_idx, posterior, transform):
-        for name in self.var_names:
-            if self.engine == "numpyro":
-                transformed_posterior = np.array(
-                    [
-                        transform(name, posterior[name].sel(chain=0).isel(draw=i).values)
-                        for i in range(posterior[name].sizes["draw"])
-                    ]
+    def _compute_single_rank(self, simulation_idx, posterior, transform, simulation_params):
+        for name in simulation_params.var_names:
+            self.simulations[name].append(
+                self.adapter.compute_single_rank(
+                    transform, name, posterior, simulation_idx, simulation_params.ref_params
                 )
-                self.simulations[name].append(
-                    (
-                        transformed_posterior
-                        < transform(name, self.ref_params[name][simulation_idx])
-                    ).sum(axis=0)
-                )
-            elif self.engine in ["bambi", "pymc"]:
-                transformed_posterior = np.array(
-                    [
-                        transform(name, posterior[name].isel(sample=i).values)
-                        for i in range(posterior[name].sizes["sample"])
-                    ]
-                )
-                self.simulations[name].append(
-                    (
-                        transformed_posterior
-                        < transform(name, self.ref_params[name].isel(sample=simulation_idx).values)
-                    ).sum(axis=0)
-                )
+            )
 
-    @quiet_logging("pymc", "pytensor.gof.compilelock", "bambi")
+    @quiet_logging("pymc", "pytensor.gof.compilelock", "bambi", "numpyro")
     def run_simulations(self):
         """Run all SBC iterations (Prior or Posterior SBC).
 
@@ -706,6 +427,10 @@ class SBC:
         you can keyboard-interrupt part way through, inspect the partial
         results, and then call ``run_simulations()`` again to continue.
         If a seed was passed at init, reproducibility is preserved.
+
+        If an error occurs during a simulation, it is logged (with its
+        traceback) rather than raised, and the run finalizes with the
+        rank statistics of the iterations completed so far.
         """
         progress = tqdm(
             initial=self._simulations_complete,
@@ -716,99 +441,55 @@ class SBC:
         if self.method == "prior":
             # In Prior SBC, the reference parameter draws are from the prior,
             # the predictive samples are from the prior predictive
-            ref_params, predictive = self._get_prior_predictive_samples()
+            ref_params, predictive = self.adapter.get_prior_predictive_samples(
+                self.num_simulations, self._seeds
+            )
         else:
             # In Posterior SBC, the reference parameter draws are from the original posterior,
             # the predictive samples are from the original posterior predictive
-            ref_params, predictive = self._get_posterior_predictive_samples()
-
-        rng = np.random.default_rng(self.seed)
-        sample_indices = rng.choice(
-            ref_params.sizes["sample"], size=self.num_simulations, replace=False
-        )
-        self.ref_params = ref_params.isel(sample=sample_indices)
-        predictive = predictive.isel(sample=sample_indices)
-
-        # if simulator is used, ignore observed_vars
-        if self.simulator is not None:
-            self.observed_vars = list(predictive.data_vars)
-            self.var_names = list(
-                filter(
-                    lambda var_name: var_name not in self.observed_vars,
-                    list(ref_params.data_vars),
-                )
+            ref_params, predictive = self.adapter.get_posterior_predictive_samples(
+                self.num_simulations, self._seeds, self.progress_bar
             )
-            self.simulations = {var_name: [] for var_name in self.var_names}
 
+        ref_params, predictive = self.adapter.subsample(
+            ref_params, predictive, self.seed, self.num_simulations
+        )
+
+        if self.simulator is not None:
+            # if simulator is used, ignore observed_vars
+            simulation_params = self.adapter.simulation_params_from_simulator(
+                ref_params, predictive
+            )
+            self.simulations = {var_name: [] for var_name in simulation_params.var_names}
+        else:
+            simulation_params = self.adapter.simulation_params_no_simulator(ref_params, predictive)
+
+        self._simulation_loop(progress, simulation_params, predictive)
+
+    def _simulation_loop(self, progress, simulation_params, predictive):
         try:
             while self._simulations_complete < self.num_simulations:
                 idx = self._simulations_complete
 
-                replicated_data = {
-                    var_name: predictive[var_name].isel(sample=idx).values
-                    for var_name in self.observed_vars
-                }
-
-                posterior = self._get_posterior_samples(replicated_data)
+                replicated_data = self.adapter.replicate(predictive, idx, simulation_params)
+                posterior = self.adapter.get_posterior_samples(
+                    simulation_params,
+                    replicated_data,
+                    self.sample_kwargs,
+                    self._seeds[self._simulations_complete],
+                    self.method,
+                    self._simulations_complete,
+                )
                 if self.keep_fits:
                     self.posteriors.append(posterior)
+                    self.kept_simulation_params = simulation_params
                 else:
-                    self._compute_single_rank(idx, posterior, self._transform)
+                    self._compute_single_rank(idx, posterior, self._transform, simulation_params)
 
                 self._simulations_complete += 1
                 progress.update()
         except Exception:
-            logging.error("Stopping simulation. An error occurred during simulations:")
-            traceback.print_exc()
-        finally:
-            if self._simulations_complete:
-                if self.keep_fits:
-                    self.compute_rank_statistics()
-                else:
-                    self.simulations = {
-                        k: np.stack(v)[None, :] for k, v in self.simulations.items()
-                    }
-                    self._convert_to_datatree()
-
-            progress.close()
-
-    @quiet_logging("numpyro")
-    def _run_simulations_numpyro(self):
-        """Run all the simulations for Numpyro Model."""
-        prior, prior_pred = self._get_prior_predictive_samples_numpyro()
-        self.ref_params = prior
-        progress = tqdm(
-            initial=self._simulations_complete,
-            total=self.num_simulations,
-        )
-        # if simulator is used, ignore observed_vars
-        if self.simulator is not None:
-            self.observed_vars = list(prior_pred.keys())
-            self.observed_model_vars = [
-                name for name in self.observed_vars if name in self.model_params
-            ]
-            if not self.observed_model_vars:
-                raise ValueError("No observed variables to condition on")
-
-            self.var_names = list(
-                filter(
-                    lambda var_name: var_name not in self.observed_vars,
-                    list(prior.keys()),
-                )
-            )
-            self.simulations = {var_name: [] for var_name in self.var_names}
-        try:
-            while self._simulations_complete < self.num_simulations:
-                idx = self._simulations_complete
-                prior_predictive_draw = {k: v[idx] for k, v in prior_pred.items()}
-                posterior = self._get_posterior_samples_numpyro(prior_predictive_draw)
-                if self.keep_fits:
-                    self.posteriors.append(posterior)
-                else:
-                    self._compute_single_rank(idx, posterior, self._transform)
-
-                self._simulations_complete += 1
-                progress.update()
+            _log.exception("Stopping simulation. An error occurred during simulations:")
         finally:
             if self._simulations_complete:
                 if self.keep_fits:
