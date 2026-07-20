@@ -96,12 +96,12 @@ def sbc_posterior_no_fits():
 
 def test_ppr_requires_keep_fits(sbc_no_fits):
     with pytest.raises(ValueError, match="keep_fits"):
-        fig = simuk.plot_parameter_recovery(sbc_no_fits, if_show=False)
+        simuk.plot_parameter_recovery(sbc_no_fits, if_show=False)
 
 
 def test_ppr_requires_keep_fits_posterior(sbc_posterior_no_fits):
     with pytest.raises(ValueError, match="keep_fits"):
-        fig = simuk.plot_parameter_recovery(sbc_posterior_no_fits, if_show=False)
+        simuk.plot_parameter_recovery(sbc_posterior_no_fits, if_show=False)
 
 
 def test_ppr_requires_completed_simulations():
@@ -111,7 +111,7 @@ def test_ppr_requires_completed_simulations():
         sample_kwargs={"draws": 5, "tune": 5},
     )
     with pytest.raises(ValueError, match="No posteriors"):
-        fig = simuk.plot_parameter_recovery(sbc, if_show=False)
+        simuk.plot_parameter_recovery(sbc, if_show=False)
 
 
 def test_ppr_requires_completed_simulations_posterior():
@@ -123,8 +123,7 @@ def test_ppr_requires_completed_simulations_posterior():
         sample_kwargs={"draws": 5, "tune": 5},
     )
     with pytest.raises(ValueError, match="No posteriors"):
-        fig = simuk.plot_parameter_recovery(sbc, if_show=False)
-
+        simuk.plot_parameter_recovery(sbc, if_show=False)
 
 
 def test_ppr_basic(sbc_with_fits):
@@ -151,9 +150,7 @@ def test_ppr_var_names_filter_posterior(sbc_posterior_with_fits):
 
 def test_ppr_with_transform(sbc_with_fits):
     fig = simuk.plot_parameter_recovery(
-        sbc_with_fits,
-        transform=lambda name, val: np.mean(val),
-        if_show=False
+        sbc_with_fits, transform=lambda name, val: np.mean(val), if_show=False
     )
     assert isinstance(fig, plt.Figure)
     # The mean transform reduces theta (8,) to scalar → 3 subplots total
@@ -163,13 +160,11 @@ def test_ppr_with_transform(sbc_with_fits):
 
 def test_ppr_with_transform_posterior(sbc_posterior_with_fits):
     fig = simuk.plot_parameter_recovery(
-        sbc_posterior_with_fits,
-        transform=lambda name, val: np.mean(val),
-        if_show=False
+        sbc_posterior_with_fits, transform=lambda name, val: np.mean(val), if_show=False
     )
     assert isinstance(fig, plt.Figure)
     visible_axes = [ax for ax in fig.get_axes() if ax.get_visible()]
-    assert len(visible_axes) == 2 # mu, sigma (all scalar after transform)
+    assert len(visible_axes) == 2  # mu, sigma (all scalar after transform)
 
 
 def test_ppr_custom_ci_prob(sbc_with_fits):
@@ -185,7 +180,7 @@ def test_ppr_custom_ci_prob_posterior(sbc_posterior_with_fits):
 def test_ppr_with_preexisting_axes(sbc_with_fits):
     # mu(1) + tau(1) + theta(8) = 10 subplots needed
     fig, axes = plt.subplots(2, 5)
-    returned_fig = simuk.plot_parameter_recovery(sbc_with_fits, axes=axes,if_show=False)
+    returned_fig = simuk.plot_parameter_recovery(sbc_with_fits, axes=axes, if_show=False)
     assert returned_fig is fig
 
 
@@ -202,18 +197,20 @@ def test_ppr_median_point_estimate(sbc_with_fits):
 
 
 def test_ppr_median_point_estimate_posterior(sbc_posterior_with_fits):
-    fig = simuk.plot_parameter_recovery(sbc_posterior_with_fits, point_estimate="median", if_show=False)
+    fig = simuk.plot_parameter_recovery(
+        sbc_posterior_with_fits, point_estimate="median", if_show=False
+    )
     assert isinstance(fig, plt.Figure)
 
 
 def test_ppr_invalid_point_estimate(sbc_with_fits):
     with pytest.raises(ValueError, match="point_estimate"):
-        fig = simuk.plot_parameter_recovery(sbc_with_fits, point_estimate="mode", if_show=False)
+        simuk.plot_parameter_recovery(sbc_with_fits, point_estimate="mode", if_show=False)
 
 
 def test_ppr_invalid_point_estimate_posterior(sbc_posterior_with_fits):
     with pytest.raises(ValueError, match="point_estimate"):
-        fig = simuk.plot_parameter_recovery(sbc_posterior_with_fits, point_estimate="mode", if_show=False)
+        simuk.plot_parameter_recovery(sbc_posterior_with_fits, point_estimate="mode", if_show=False)
 
 
 def test_plot_ecdf_basic(sbc_with_fits, sbc_no_fits):

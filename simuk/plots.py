@@ -3,8 +3,9 @@
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-from arviz_plots import plot_ecdf_pit
+from arviz_plots import plot_ecdf_pit, style
 
+style.use("arviz-variat")
 
 def _extract_draws(posterior, name):
     """Extract posterior draws for a parameter as a numpy array.
