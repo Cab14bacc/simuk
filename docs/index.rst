@@ -23,7 +23,6 @@ In our case, we will take a PyMC model and pass it into our ``SBC`` class.
 
 .. code-block:: python
 
-    from arviz_plots import plot_ecdf_pit
     import numpy as np
     import pymc as pm
 
@@ -50,9 +49,7 @@ Plot the empirical CDF to compare the differences between the prior and posterio
 
 .. code-block:: python
 
-    plot_ecdf_pit(sbc.simulations,
-                visuals={"xlabel":False},
-    );
+    simuk.plot_ecdf(sbc)
 
 The lines should be nearly uniform and fall within the oval envelope. It suggests that the prior and posterior distributions
 are properly aligned and that there are no significant biases or issues with the model.
@@ -118,7 +115,7 @@ Currently, it's only implemented for PyMC.
     )
     post_sbc.run_simulations()
 
-    plot_ecdf_pit(post_sbc.simulations, group="posterior_sbc", visuals={"xlabel": False})
+    simuk.plot_ecdf(post_sbc)
 
 For more advanced use cases, such as custom data augmentation or re-evaluating rank statistics, check out the :doc:`Posterior SBC tutorial <examples/gallery/posterior_sbc>`.
 
