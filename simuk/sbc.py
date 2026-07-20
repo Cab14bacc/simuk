@@ -221,13 +221,13 @@ class SBC:
         self._seeds = self._get_seeds()
 
         if hasattr(model, "basic_RVs") and isinstance(model, pm.Model):
-            from simuk.pymc_adapter import PymcAdapter  # noqa: PLC0415
+            from simuk.adapters.pymc_adapter import PymcAdapter  # noqa: PLC0415
 
             self.engine = "pymc"
             self.model = model
             self.adapter = PymcAdapter(self.model, simulator, trace, augment_observed, update_data)
         elif hasattr(model, "formula"):
-            from simuk.pymc_adapter import PymcAdapter  # noqa: PLC0415
+            from simuk.adapters.pymc_adapter import PymcAdapter  # noqa: PLC0415
 
             self.engine = "bambi"
             model.build()
@@ -238,7 +238,7 @@ class SBC:
             self.adapter = PymcAdapter(self.model, simulator, trace, augment_observed, update_data)
         elif isinstance(model, MCMCKernel):
             # runtime import so an environment with only Pymc can run SBC over Pymc models.
-            from simuk.numpyro_adapter import NumpyroAdapter  # noqa: PLC0415
+            from simuk.adapters.numpyro_adapter import NumpyroAdapter  # noqa: PLC0415
 
             self.engine = "numpyro"
             self.numpyro_model = model

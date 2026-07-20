@@ -10,7 +10,7 @@ from arviz_base.io_numpyro import infer_dims
 from numpyro.handlers import seed, trace
 from numpyro.infer import MCMC, Predictive
 
-from simuk.backend_adapter import BackendAdapter
+from simuk.adapters.backend_adapter import BackendAdapter
 
 log = logging.getLogger(__name__)
 
