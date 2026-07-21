@@ -1,6 +1,5 @@
 """Parameter recovery plotting for simulation-based calibration."""
 
-import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 from arviz_plots import plot_ecdf_pit, style
@@ -299,10 +298,6 @@ def plot_parameter_recovery(
 
 
 def plot_ecdf(sbc, if_show=True):
-    if not if_show:
-        matplotlib.use("Agg")
-    else:
-        matplotlib.use("TkAgg")
 
     if sbc.method == "posterior":
         fig = plot_ecdf_pit(

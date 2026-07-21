@@ -1,23 +1,31 @@
 import arviz_plots as azp
-import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+import numpyro
+import numpyro.distributions as dist
 import pymc as pm
 import pytest
+from numpyro.infer import NUTS
 
 import simuk
 
-matplotlib.use("Agg")
-
 # Test data (same as test_prior_sbc.py)
-data = np.array([28.0, 8.0, -3.0, 7.0, -1.0, 1.0, 18.0, 12.0])
-sigma = np.array([15.0, 10.0, 16.0, 11.0, 9.0, 11.0, 10.0, 18.0])
+plot_data = np.array([28.0, 8.0, -3.0, 7.0, -1.0, 1.0, 18.0, 12.0])
+sigma_eight_schools = np.array([15.0, 10.0, 16.0, 11.0, 9.0, 11.0, 10.0, 18.0])
 
 with pm.Model() as centered_eight:
     mu = pm.Normal("mu", mu=0, sigma=5)
     tau = pm.HalfCauchy("tau", beta=5)
     theta = pm.Normal("theta", mu=mu, sigma=tau, shape=8)
-    y_obs = pm.Normal("y", mu=theta, sigma=sigma, observed=data)
+    y_obs = pm.Normal("y", mu=theta, sigma=sigma_eight_schools, observed=plot_data)
+
+
+def eight_schools_cauchy_prior(J, sigma, y=None):
+    mu = numpyro.sample("mu", dist.Normal(0, 5))
+    tau = numpyro.sample("tau", dist.HalfCauchy(5))
+    with numpyro.plate("J", J):
+        theta = numpyro.sample("theta", dist.Normal(mu, tau))
+    numpyro.sample("y", dist.Normal(theta, sigma), obs=y)
 
 
 @pytest.fixture(scope="module")
@@ -26,6 +34,19 @@ def sbc_with_fits():
         centered_eight,
         num_simulations=10,
         sample_kwargs={"draws": 10, "tune": 10},
+        seed=42,
+    )
+    sbc.run_simulations()
+    return sbc
+
+
+@pytest.fixture(scope="module")
+def sbc_with_fits_numpyro():
+    sbc = simuk.SBC(
+        NUTS(eight_schools_cauchy_prior),
+        data_dir={"J": 8, "sigma": sigma_eight_schools, "y": plot_data},
+        num_simulations=10,
+        sample_kwargs={"num_warmup": 10, "num_samples": 10},
         seed=42,
     )
     sbc.run_simulations()
@@ -54,9 +75,9 @@ y_obs_reg = 1.5 * x_obs + default_rng.normal(0, 0.5, size=20)
 
 with pm.Model() as simple_posterior_model:
     mu = pm.Normal("mu", mu=0, sigma=5)
-    sigma = pm.HalfNormal("sigma", sigma=2)
+    sigma_pymc = pm.HalfNormal("sigma", sigma=2)
     y_data = pm.Data("y_data", obs_data)
-    pm.Normal("y", mu=mu, sigma=sigma, observed=y_data)
+    pm.Normal("y", mu=mu, sigma=sigma_pymc, observed=y_data)
 
 with simple_posterior_model:
     trace_simple = pm.sample(
@@ -135,6 +156,11 @@ def test_ppr_basic(sbc_with_fits):
     assert isinstance(fig, plt.Figure)
 
 
+def test_plot_ppr_basic_numpyro(sbc_with_fits_numpyro):
+    fig = simuk.plot_parameter_recovery(sbc_with_fits_numpyro, if_show=False)
+    assert isinstance(fig, plt.Figure)
+
+
 def test_ppr_basic_posterior(sbc_posterior_with_fits):
     fig = simuk.plot_parameter_recovery(sbc_posterior_with_fits, if_show=False)
     assert isinstance(fig, plt.Figure)
@@ -177,14 +203,13 @@ def test_ppr_with_transform_posterior(sbc_posterior_with_fits):
 
 
 def test_ppr_custom_ci_prob(sbc_with_fits):
-    fig = simuk.plot_parameter_recovery(sbc_with_fits, ci_prob=0.5)
+    fig = simuk.plot_parameter_recovery(sbc_with_fits, ci_prob=0.5, if_show=False)
     plt.close(fig)
     assert isinstance(fig, plt.Figure)
 
 
 def test_ppr_custom_ci_prob_posterior(sbc_posterior_with_fits):
-    fig = simuk.plot_parameter_recovery(sbc_posterior_with_fits, ci_prob=0.5)
-    plt.close(fig)
+    fig = simuk.plot_parameter_recovery(sbc_posterior_with_fits, ci_prob=0.5, if_show=False)
     assert isinstance(fig, plt.Figure)
 
 
@@ -229,6 +254,20 @@ def test_ppr_invalid_point_estimate(sbc_with_fits):
 def test_ppr_invalid_point_estimate_posterior(sbc_posterior_with_fits):
     with pytest.raises(ValueError, match="point_estimate"):
         simuk.plot_parameter_recovery(sbc_posterior_with_fits, point_estimate="mode", if_show=False)
+
+
+def test_ppr_show_branch(monkeypatch, sbc_with_fits):
+    called = {"value": False}
+
+    def fake_show():
+        called["value"] = True
+
+    monkeypatch.setattr(plt, "show", fake_show)
+
+    fig = simuk.plot_parameter_recovery(sbc_with_fits, if_show=True)
+    assert isinstance(fig, plt.Figure)
+    assert called["value"]
+    plt.close(fig)
 
 
 def test_plot_ecdf_basic(sbc_with_fits, sbc_no_fits):
