@@ -161,11 +161,10 @@ def test_ppr_with_transform(sbc_with_fits):
     visible_axes = [ax for ax in fig.get_axes() if ax.get_visible()]
     assert len(visible_axes) == 3  # mu, tau, theta (all scalar after transform)
 
+
 def test_ppr_with_bad_transform(sbc_with_fits):
     with pytest.raises(ValueError, match="`transform` should be a function or None"):
-        simuk.plot_parameter_recovery(
-            sbc_with_fits, transform="bad transform", if_show=False
-        )
+        simuk.plot_parameter_recovery(sbc_with_fits, transform="bad transform", if_show=False)
 
 
 def test_ppr_with_transform_posterior(sbc_posterior_with_fits):
@@ -183,7 +182,6 @@ def test_ppr_custom_ci_prob(sbc_with_fits):
     assert isinstance(fig, plt.Figure)
 
 
-
 def test_ppr_custom_ci_prob_posterior(sbc_posterior_with_fits):
     fig = simuk.plot_parameter_recovery(sbc_posterior_with_fits, ci_prob=0.5)
     plt.close(fig)
@@ -195,6 +193,7 @@ def test_ppr_with_preexisting_axes(sbc_with_fits):
     fig, axes = plt.subplots(2, 5)
     returned_fig = simuk.plot_parameter_recovery(sbc_with_fits, axes=axes, if_show=False)
     assert returned_fig is fig
+
 
 def test_ppr_with_insufficient_preexisting_axes(sbc_with_fits):
     # mu(1) + tau(1) + theta(8) = 10 subplots needed
@@ -230,6 +229,7 @@ def test_ppr_invalid_point_estimate(sbc_with_fits):
 def test_ppr_invalid_point_estimate_posterior(sbc_posterior_with_fits):
     with pytest.raises(ValueError, match="point_estimate"):
         simuk.plot_parameter_recovery(sbc_posterior_with_fits, point_estimate="mode", if_show=False)
+
 
 def test_plot_ecdf_basic(sbc_with_fits, sbc_no_fits):
     fig = simuk.plot_ecdf(sbc_with_fits, if_show=False)
