@@ -127,10 +127,7 @@ def plot_parameter_recovery(
     posterior draws per fit is small, the actual uncertainty in empirical
     coverage will be larger than the displayed ± range.
     """
-    if not if_show:
-        matplotlib.use("Agg")
-    else:
-        matplotlib.use("TkAgg")
+
 
     # ---- validation --------------------------------------------------------
     if not sbc.keep_fits:
