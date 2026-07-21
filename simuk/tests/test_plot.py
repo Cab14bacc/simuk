@@ -243,7 +243,5 @@ def test_plot_ecdf_posterior(sbc_posterior_with_fits, sbc_posterior_no_fits):
     fig = simuk.plot_ecdf(sbc_posterior_with_fits, if_show=False)
     assert isinstance(fig, azp.plot_collection.PlotCollection)
 
-    plt.ion()
-    fig = simuk.plot_ecdf(sbc_posterior_no_fits)
+    fig = simuk.plot_ecdf(sbc_posterior_no_fits, if_show=False)
     assert isinstance(fig, azp.plot_collection.PlotCollection)
-    plt.close("all")
