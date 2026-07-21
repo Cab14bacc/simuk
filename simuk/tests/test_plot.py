@@ -284,3 +284,17 @@ def test_plot_ecdf_posterior(sbc_posterior_with_fits, sbc_posterior_no_fits):
 
     fig = simuk.plot_ecdf(sbc_posterior_no_fits, if_show=False)
     assert isinstance(fig, azp.plot_collection.PlotCollection)
+
+
+def test_ecdf_show_branch(monkeypatch, sbc_with_fits):
+    called = {"value": False}
+
+    def fake_show():
+        called["value"] = True
+
+    monkeypatch.setattr(plt, "show", fake_show)
+
+    fig = simuk.plot_ecdf(sbc_with_fits, if_show=True)
+    assert isinstance(fig, azp.plot_collection.PlotCollection)
+    assert called["value"]
+    plt.close("all")
