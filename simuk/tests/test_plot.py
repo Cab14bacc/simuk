@@ -25,7 +25,8 @@ def sbc_with_fits():
     sbc = simuk.SBC(
         centered_eight,
         num_simulations=10,
-        sample_kwargs={"draws": 5, "tune": 5},
+        sample_kwargs={"draws": 10, "tune": 10},
+        seed=42,
     )
     sbc.run_simulations()
     return sbc
@@ -36,8 +37,9 @@ def sbc_no_fits():
     sbc = simuk.SBC(
         centered_eight,
         num_simulations=10,
-        sample_kwargs={"draws": 5, "tune": 5},
+        sample_kwargs={"draws": 10, "tune": 10},
         keep_fits=False,
+        seed=42,
     )
     sbc.run_simulations()
     return sbc
@@ -74,6 +76,7 @@ def sbc_posterior_with_fits():
         trace=trace_simple,
         method="posterior",
         num_simulations=10,
+        seed=42,
         sample_kwargs={"draws": 5, "tune": 5},
     )
     sbc.run_simulations()
@@ -88,6 +91,7 @@ def sbc_posterior_no_fits():
         method="posterior",
         num_simulations=10,
         sample_kwargs={"draws": 5, "tune": 5},
+        seed=42,
         keep_fits=False,
     )
     sbc.run_simulations()
