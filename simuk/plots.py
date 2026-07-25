@@ -84,8 +84,7 @@ def plot_parameter_recovery(
         ``keep_fits=True``.
     ci_prob : float, default 0.94
         Probability mass of the credible interval (e.g. 0.94 for a 94 %
-        CI).  The interval is computed from posterior quantiles — no
-        distributional assumptions (e.g. normality) are made.
+        CI).  The interval is computed from posterior quantiles.
     point_estimate : {"mean", "median"}, default "mean"
         Which posterior point estimate to plot on the y-axis.
     transform : callable, optional
