@@ -30,6 +30,7 @@ except ImportError:
     pass
 
 import numpy as np
+import xarray as xr
 from arviz_base import from_dict
 from tqdm import tqdm
 
@@ -266,7 +267,7 @@ class SBC:
         self.sample_kwargs = sample_kwargs
         self.simulations = {name: [] for name in self.adapter.var_names}
         self._simulations_complete = 0
-        self.posteriors = []
+        self.posteriors: list[xr.Dataset] = []
         self.keep_fits = keep_fits
 
         if simulator is not None and not callable(simulator):
