@@ -53,7 +53,9 @@ class NumpyroAdapter(BackendAdapter):
                 params = dict(zip(prior.keys(), vals))
                 params["seed"] = seeds[i]
                 results.append(self.simulator(**params))
-            prior_pred = {key: np.asarray([result[key] for result in results]) for key in results[0]}
+            prior_pred = {
+                key: np.asarray([result[key] for result in results]) for key in results[0]
+            }
         else:
             prior_pred = {k: v for k, v in samples.items() if k in self.observed_model_vars}
 
