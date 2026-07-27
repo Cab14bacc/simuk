@@ -1,5 +1,4 @@
 import arviz_plots as azp
-import matplotlib.pyplot as plt
 import numpy as np
 import numpyro
 import numpyro.distributions as dist
@@ -153,121 +152,99 @@ def test_ppr_requires_completed_simulations_posterior():
 
 def test_ppr_basic(sbc_with_fits):
     fig = simuk.plot_parameter_recovery(sbc_with_fits, if_show=False)
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, azp.plot_collection.PlotCollection)
 
 
 def test_plot_ppr_basic_numpyro(sbc_with_fits_numpyro):
     fig = simuk.plot_parameter_recovery(sbc_with_fits_numpyro, if_show=False)
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, azp.plot_collection.PlotCollection)
 
 
 def test_ppr_basic_posterior(sbc_posterior_with_fits):
     fig = simuk.plot_parameter_recovery(sbc_posterior_with_fits, if_show=False)
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, azp.plot_collection.PlotCollection)
 
 
 def test_ppr_var_names_filter(sbc_with_fits):
     fig = simuk.plot_parameter_recovery(sbc_with_fits, var_names=["mu"], if_show=False)
-    visible_axes = [ax for ax in fig.get_axes() if ax.get_visible()]
-    assert len(visible_axes) == 1
+
+    used_params = len(fig.data.coords["parameter"])
+    assert used_params == 1
 
 
 def test_ppr_var_names_filter_posterior(sbc_posterior_with_fits):
     fig = simuk.plot_parameter_recovery(sbc_posterior_with_fits, var_names=["mu"], if_show=False)
-    visible_axes = [ax for ax in fig.get_axes() if ax.get_visible()]
-    assert len(visible_axes) == 1
-
-
-def test_ppr_with_transform(sbc_with_fits):
-    fig = simuk.plot_parameter_recovery(
-        sbc_with_fits, transform=lambda name, val: np.mean(val), if_show=False
-    )
-    assert isinstance(fig, plt.Figure)
-    # The mean transform reduces theta (8,) to scalar → 3 subplots total
-    visible_axes = [ax for ax in fig.get_axes() if ax.get_visible()]
-    assert len(visible_axes) == 3  # mu, tau, theta (all scalar after transform)
-
-
-def test_ppr_with_bad_transform(sbc_with_fits):
-    with pytest.raises(ValueError, match="`transform` should be a function or None"):
-        simuk.plot_parameter_recovery(sbc_with_fits, transform="bad transform", if_show=False)
-
-
-def test_ppr_with_transform_posterior(sbc_posterior_with_fits):
-    fig = simuk.plot_parameter_recovery(
-        sbc_posterior_with_fits, transform=lambda name, val: np.mean(val), if_show=False
-    )
-    assert isinstance(fig, plt.Figure)
-    visible_axes = [ax for ax in fig.get_axes() if ax.get_visible()]
-    assert len(visible_axes) == 2  # mu, sigma (all scalar after transform)
+    used_params = len(fig.data.coords["parameter"])
+    assert used_params == 1
 
 
 def test_ppr_custom_ci_prob(sbc_with_fits):
     fig = simuk.plot_parameter_recovery(sbc_with_fits, ci_prob=0.5, if_show=False)
-    plt.close(fig)
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, azp.plot_collection.PlotCollection)
 
 
 def test_ppr_custom_ci_prob_posterior(sbc_posterior_with_fits):
     fig = simuk.plot_parameter_recovery(sbc_posterior_with_fits, ci_prob=0.5, if_show=False)
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, azp.plot_collection.PlotCollection)
 
 
-def test_ppr_with_preexisting_axes(sbc_with_fits):
+def test_ppr_with_preexisting_plot_collection(sbc_with_fits):
+    from simuk.plots import _build_recovery_dataset  # noqa: PLC0415
+
+    ds = _build_recovery_dataset(
+        sbc_with_fits,
+        ci_prob=0.89,
+        point_estimate="mean",
+        transform=sbc_with_fits._transform,
+        var_names=sbc_with_fits.kept_simulation_params.var_names,
+    )
+
+    pc = azp.plot_collection.PlotCollection.wrap(
+        ds,
+        cols=["parameter"],
+        col_wrap=4,
+        backend="matplotlib",
+    )
     # mu(1) + tau(1) + theta(8) = 10 subplots needed
-    fig, axes = plt.subplots(2, 5)
-    returned_fig = simuk.plot_parameter_recovery(sbc_with_fits, axes=axes, if_show=False)
-    assert returned_fig is fig
-
-
-def test_ppr_with_insufficient_preexisting_axes(sbc_with_fits):
-    # mu(1) + tau(1) + theta(8) = 10 subplots needed
-    with pytest.raises(ValueError, match="axes but only"):
-        _, axes = plt.subplots(2, 4)
-        simuk.plot_parameter_recovery(sbc_with_fits, axes=axes, if_show=False)
-
-
-def test_ppr_with_preexisting_axes_posterior(sbc_posterior_with_fits):
-    # mu(1) + sigma(1) + theta(8) = 10 subplots needed
-    fig, axes = plt.subplots(2, 5)
-    returned_fig = simuk.plot_parameter_recovery(sbc_posterior_with_fits, axes=axes, if_show=False)
-    assert returned_fig is fig
+    returned_fig = simuk.plot_parameter_recovery(sbc_with_fits, plot_collection=pc, if_show=False)
+    assert returned_fig is pc
 
 
 def test_ppr_median_point_estimate(sbc_with_fits):
     fig = simuk.plot_parameter_recovery(sbc_with_fits, point_estimate="median", if_show=False)
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, azp.plot_collection.PlotCollection)
 
 
 def test_ppr_median_point_estimate_posterior(sbc_posterior_with_fits):
     fig = simuk.plot_parameter_recovery(
         sbc_posterior_with_fits, point_estimate="median", if_show=False
     )
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, azp.plot_collection.PlotCollection)
 
 
 def test_ppr_invalid_point_estimate(sbc_with_fits):
-    with pytest.raises(ValueError, match="point_estimate"):
-        simuk.plot_parameter_recovery(sbc_with_fits, point_estimate="mode", if_show=False)
+    with pytest.raises(ValueError, match="is not one of"):
+        simuk.plot_parameter_recovery(sbc_with_fits, point_estimate="modddd", if_show=False)
 
 
 def test_ppr_invalid_point_estimate_posterior(sbc_posterior_with_fits):
-    with pytest.raises(ValueError, match="point_estimate"):
-        simuk.plot_parameter_recovery(sbc_posterior_with_fits, point_estimate="mode", if_show=False)
+    with pytest.raises(ValueError, match="is not one of"):
+        simuk.plot_parameter_recovery(
+            sbc_posterior_with_fits, point_estimate="modddd", if_show=False
+        )
 
 
 def test_ppr_show_branch(monkeypatch, sbc_with_fits):
     called = {"value": False}
 
-    def fake_show():
+    def fake_show(*args, **kwargs):
         called["value"] = True
 
-    monkeypatch.setattr(plt, "show", fake_show)
+    monkeypatch.setattr(azp.plot_collection.PlotCollection, "show", fake_show)
 
     fig = simuk.plot_parameter_recovery(sbc_with_fits, if_show=True)
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, azp.plot_collection.PlotCollection)
     assert called["value"]
-    plt.close(fig)
 
 
 def test_plot_ecdf_basic(sbc_with_fits, sbc_no_fits):
@@ -289,12 +266,11 @@ def test_plot_ecdf_posterior(sbc_posterior_with_fits, sbc_posterior_no_fits):
 def test_ecdf_show_branch(monkeypatch, sbc_with_fits):
     called = {"value": False}
 
-    def fake_show():
+    def fake_show(*args, **kwargs):
         called["value"] = True
 
-    monkeypatch.setattr(plt, "show", fake_show)
+    monkeypatch.setattr(azp.plot_collection.PlotCollection, "show", fake_show)
 
     fig = simuk.plot_ecdf(sbc_with_fits, if_show=True)
     assert isinstance(fig, azp.plot_collection.PlotCollection)
     assert called["value"]
-    plt.close("all")
