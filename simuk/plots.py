@@ -270,16 +270,32 @@ def plot_parameter_recovery(
     # Reference line
     visuals_ref_line = get_visual_kwargs(visuals, "reference_line", {})
     if visuals_ref_line is not False:
-        true_vals = ds["recovery"].sel(quantity="true")
-        ci_low = ds["recovery"].sel(quantity="ci_low")
-        ci_hi = ds["recovery"].sel(quantity="ci_high")
-        line_min = np.min([true_vals.min().item(), ci_low.min().item()])
-        line_max = np.max([true_vals.max().item(), ci_hi.max().item()])
+
+        def _facet_reference_line(da, target, **kwargs):
+            """Draws a 45-degree line scaled exactly to this facet's specific data range."""
+            plot_backend = backend_from_object(target)
+
+            true_vals = da.sel(quantity="true")
+            ci_low = da.sel(quantity="ci_low")
+            ci_hi = da.sel(quantity="ci_high")
+
+            # Now this min/max is local to the specific parameter in this subplot
+            line_min = np.min([true_vals.min().item(), ci_low.min().item()])
+            line_max = np.max([true_vals.max().item(), ci_hi.max().item()])
+
+            # Using the backend to draw the line
+            plot_backend.line(
+                [line_min, line_max],
+                [line_min, line_max],
+                target,
+                color="gray",
+                linestyle="--",
+                **kwargs,
+            )
 
         pc.map(
-            azp.visuals.dline,
-            x=[line_min, line_max],
-            y=[line_min, line_max],
+            _facet_reference_line,
+            data=ds["recovery"],
             **visuals_ref_line,
         )
 
