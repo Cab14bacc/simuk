@@ -36,7 +36,7 @@ In our case, we will take a PyMC model and pass it into our ``SBC`` class.
         y_obs = pm.Normal('y', mu=theta, sigma=sigma, observed=data)
 
     # Pass it into the SBC class
-    sbc = simuk.SBC(centered_eight, num_simulations=100, sample_kwargs={'draws': 25, 'tune': 50})
+    sbc = simuk.SBC(centered_eight, num_simulations=100, sample_kwargs={'draws': 100, 'tune': 100})
 
 Now, we use the ``run_simulations`` method to generate and analyze simulated data, running the model multiple times to
 compare prior and posterior distributions.
@@ -110,7 +110,7 @@ Currently, it's only implemented for PyMC.
         trace=idata,
         update_data=update_data,
         num_simulations=100,
-        sample_kwargs={'draws': 25, 'tune': 50},
+        sample_kwargs={'draws': 100, 'tune': 100},
         progress_bar=False
     )
     post_sbc.run_simulations()
