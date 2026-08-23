@@ -8,29 +8,10 @@ from numpyro.infer import NUTS
 
 import simuk
 
-# Test data (same as test_prior_sbc.py)
-plot_data = np.array([28.0, 8.0, -3.0, 7.0, -1.0, 1.0, 18.0, 12.0])
-sigma_eight_schools = np.array([15.0, 10.0, 16.0, 11.0, 9.0, 11.0, 10.0, 18.0])
-
-with pm.Model() as centered_eight:
-    mu = pm.Normal("mu", mu=0, sigma=5)
-    tau = pm.HalfCauchy("tau", beta=5)
-    theta = pm.Normal("theta", mu=mu, sigma=tau, shape=8)
-    y_obs = pm.Normal("y", mu=theta, sigma=sigma_eight_schools, observed=plot_data)
-
-
-def eight_schools_cauchy_prior(J, sigma, y=None):
-    mu = numpyro.sample("mu", dist.Normal(0, 5))
-    tau = numpyro.sample("tau", dist.HalfCauchy(5))
-    with numpyro.plate("J", J):
-        theta = numpyro.sample("theta", dist.Normal(mu, tau))
-    numpyro.sample("y", dist.Normal(theta, sigma), obs=y)
-
-
 @pytest.fixture(scope="module")
-def sbc_with_fits():
+def sbc_with_fits(pm_centered_eight_model):
     sbc = simuk.SBC(
-        centered_eight,
+        pm_centered_eight_model,
         num_simulations=10,
         sample_kwargs={"draws": 10, "tune": 10},
         seed=42,
@@ -40,10 +21,10 @@ def sbc_with_fits():
 
 
 @pytest.fixture(scope="module")
-def sbc_with_fits_numpyro():
+def sbc_with_fits_numpyro(numpyro_eight_schools_cauchy_prior, numpyro_eight_schools_cauchy_prior_data):
     sbc = simuk.SBC(
-        NUTS(eight_schools_cauchy_prior),
-        data_dir={"J": 8, "sigma": sigma_eight_schools, "y": plot_data},
+        NUTS(numpyro_eight_schools_cauchy_prior),
+        data_dir=numpyro_eight_schools_cauchy_prior_data,
         num_simulations=10,
         sample_kwargs={"num_warmup": 10, "num_samples": 10},
         seed=42,
@@ -53,9 +34,9 @@ def sbc_with_fits_numpyro():
 
 
 @pytest.fixture(scope="module")
-def sbc_no_fits():
+def sbc_no_fits(pm_centered_eight_model):
     sbc = simuk.SBC(
-        centered_eight,
+        pm_centered_eight_model,
         num_simulations=10,
         sample_kwargs={"draws": 10, "tune": 10},
         keep_fits=False,
@@ -65,35 +46,11 @@ def sbc_no_fits():
     return sbc
 
 
-# Test data (same as test_posterior_sbc.py)
-default_rng = np.random.default_rng(1234)
-obs_data = default_rng.normal(2.0, 1.0, size=20)
-x_obs = np.linspace(0, 1, 20)
-y_obs_reg = 1.5 * x_obs + default_rng.normal(0, 0.5, size=20)
-
-
-with pm.Model() as simple_posterior_model:
-    mu = pm.Normal("mu", mu=0, sigma=5)
-    sigma_pymc = pm.HalfNormal("sigma", sigma=2)
-    y_data = pm.Data("y_data", obs_data)
-    pm.Normal("y", mu=mu, sigma=sigma_pymc, observed=y_data)
-
-with simple_posterior_model:
-    trace_simple = pm.sample(
-        draws=30,
-        tune=30,
-        chains=1,
-        random_seed=123,
-        progressbar=False,
-        compute_convergence_checks=False,
-    )
-
-
 @pytest.fixture(scope="module")
-def sbc_posterior_with_fits():
+def sbc_posterior_with_fits(pm_simple_model, pm_simple_model_trace):
     sbc = simuk.SBC(
-        simple_posterior_model,
-        trace=trace_simple,
+        pm_simple_model,
+        trace=pm_simple_model_trace,
         method="posterior",
         num_simulations=10,
         seed=42,
@@ -104,10 +61,10 @@ def sbc_posterior_with_fits():
 
 
 @pytest.fixture(scope="module")
-def sbc_posterior_no_fits():
+def sbc_posterior_no_fits(pm_simple_model, pm_simple_model_trace):
     sbc = simuk.SBC(
-        simple_posterior_model,
-        trace=trace_simple,
+        pm_simple_model,
+        trace=pm_simple_model_trace,
         method="posterior",
         num_simulations=10,
         sample_kwargs={"draws": 5, "tune": 5},
@@ -128,9 +85,9 @@ def test_ppr_requires_keep_fits_posterior(sbc_posterior_no_fits):
         simuk.plot_parameter_recovery(sbc_posterior_no_fits, if_show=False)
 
 
-def test_ppr_requires_completed_simulations():
+def test_ppr_requires_completed_simulations(pm_centered_eight_model):
     sbc = simuk.SBC(
-        centered_eight,
+        pm_centered_eight_model,
         num_simulations=2,
         sample_kwargs={"draws": 5, "tune": 5},
     )
@@ -138,10 +95,10 @@ def test_ppr_requires_completed_simulations():
         simuk.plot_parameter_recovery(sbc, if_show=False)
 
 
-def test_ppr_requires_completed_simulations_posterior():
+def test_ppr_requires_completed_simulations_posterior(pm_simple_model, pm_simple_model_trace):
     sbc = simuk.SBC(
-        simple_posterior_model,
-        trace=trace_simple,
+        pm_simple_model,
+        trace=pm_simple_model_trace,
         method="posterior",
         num_simulations=2,
         sample_kwargs={"draws": 5, "tune": 5},

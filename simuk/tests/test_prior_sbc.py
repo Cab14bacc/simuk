@@ -13,59 +13,19 @@ import simuk
 
 default_rng = np.random.default_rng(1234)
 
-# Test data
-data = np.array([28.0, 8.0, -3.0, 7.0, -1.0, 1.0, 18.0, 12.0])
-sigma = np.array([15.0, 10.0, 16.0, 11.0, 9.0, 11.0, 10.0, 18.0])
-
-# PyMC models
-with pm.Model() as centered_eight:
-    mu = pm.Normal("mu", mu=0, sigma=5)
-    tau = pm.HalfCauchy("tau", beta=5)
-    theta = pm.Normal("theta", mu=mu, sigma=tau, shape=8)
-    y_obs = pm.Normal("y", mu=theta, sigma=sigma, observed=data)
-
-with pm.Model() as centered_eight_no_observed:
-    mu = pm.Normal("mu", mu=0, sigma=5)
-    tau = pm.HalfCauchy("tau", beta=5)
-    theta = pm.Normal("theta", mu=mu, sigma=tau, shape=8)
-    y_obs = pm.Normal("y", mu=theta, sigma=sigma)
-
-# Bambi model
-x = default_rng.normal(0, 1, 20)
-y = 2 + default_rng.normal(x, 1)
-df = pd.DataFrame({"x": x, "y": y})
-bmb_model = bmb.Model("y ~ x", df)
-
-
-# NumPyro models
-def eight_schools_cauchy_prior(J, sigma, y=None):
-    mu = numpyro.sample("mu", dist.Normal(0, 5))
-    tau = numpyro.sample("tau", dist.HalfCauchy(5))
-    with numpyro.plate("J", J):
-        theta = numpyro.sample("theta", dist.Normal(mu, tau))
-    numpyro.sample("y", dist.Normal(theta, sigma), obs=y)
-
-
-def eight_schools_cauchy_prior_no_observed(J, sigma, y=None):
-    mu = numpyro.sample("mu", dist.Normal(0, 5))
-    tau = numpyro.sample("tau", dist.HalfCauchy(5))
-    with numpyro.plate("J", J):
-        theta = numpyro.sample("theta", dist.Normal(mu, tau))
-    if y is not None:
-        log_likelihood = jnp.sum(dist.Normal(theta, sigma).log_prob(y))
-        numpyro.factor("custom_likelihood", log_likelihood)
-
-
 def numpyro_model_double_observed(y1=jnp.array([0.0]), y2=jnp.array([0.0])):
     numpyro.sample("y1", dist.Normal(0, 1), obs=y1)
     numpyro.sample("y2", dist.Normal(0, 1), obs=y2)
 
 
 # Custom simulator functions
-def centered_eight_simulator(theta, seed, **kwargs):
-    rng = np.random.default_rng(seed)
-    return {"y": rng.normal(theta, sigma)}
-
+@pytest.fixture(scope="module")
+def centered_eight_simulator(general_obs_data):
+    _, sigma = general_obs_data
+    def _centered_eight_simulator(theta, seed, **kwargs):
+        rng = np.random.default_rng(seed)
+        return {"y": rng.normal(theta, sigma)}
+    return _centered_eight_simulator
 
 @njit
 def centered_eight_jitted_simulator(tau, mu, theta, seed):
@@ -76,6 +36,13 @@ def centered_eight_jitted_simulator(tau, mu, theta, seed):
         y[i] = theta[i]
     return {"y": y}
 
+@pytest.fixture(scope="module")
+def bmb_model():
+    x = default_rng.normal(0, 1, 20)
+    y = 2 + default_rng.normal(x, 1)
+    df = pd.DataFrame({"x": x, "y": y})
+    bmb_model = bmb.Model("y ~ x", df)
+    return bmb_model
 
 def bmb_simulator(mu, sigma, seed, **kwargs):
     rng = np.random.default_rng(seed)
@@ -83,8 +50,9 @@ def bmb_simulator(mu, sigma, seed, **kwargs):
 
 
 # --- Tests with observed variables ---
-@pytest.mark.parametrize("model", [centered_eight, bmb_model])
-def test_sbc_with_observed_data(model):
+@pytest.mark.parametrize("model_name", ["pm_centered_eight_model", "bmb_model"])
+def test_sbc_with_observed_data(model_name, request):
+    model = request.getfixturevalue(model_name)
     sbc = simuk.SBC(
         model,
         num_simulations=10,
@@ -94,10 +62,10 @@ def test_sbc_with_observed_data(model):
     assert "prior_sbc" in sbc.simulations
 
 
-def test_sbc_numpyro_with_observed_data():
+def test_sbc_numpyro_with_observed_data(numpyro_eight_schools_cauchy_prior, numpyro_eight_schools_cauchy_prior_data):
     sbc = simuk.SBC(
-        NUTS(eight_schools_cauchy_prior),
-        data_dir={"J": 8, "sigma": sigma, "y": data},
+        NUTS(numpyro_eight_schools_cauchy_prior),
+        data_dir=numpyro_eight_schools_cauchy_prior_data,
         num_simulations=10,
         sample_kwargs={"num_warmup": 50, "num_samples": 25},
     )
@@ -112,17 +80,20 @@ def test_sbc_numpyro_with_observed_data():
 
 # --- Tests with custom simulators ---
 @pytest.mark.parametrize(
-    "model,simulator",
+    "model_name",
     [
         # Case 1: Both simulator function and observed variables present
-        (centered_eight, centered_eight_simulator),
+        ("pm_centered_eight_model"),
         # Case 2: Only simulator function present
-        (centered_eight_no_observed, centered_eight_simulator),
+        ("pm_centered_eight_no_observed_model"),
     ],
 )
-def test_sbc_with_custom_simulator(model, simulator):
+
+def test_sbc_with_custom_simulator(model_name, centered_eight_simulator, request):
+    model = request.getfixturevalue(model_name)
+
     sbc = simuk.SBC(
-        model, num_simulations=10, sample_kwargs={"draws": 5, "tune": 5}, simulator=simulator
+        model, num_simulations=10, sample_kwargs={"draws": 5, "tune": 5}, simulator=centered_eight_simulator
     )
     sbc.run_simulations()
     assert "prior_sbc" in sbc.simulations
@@ -132,7 +103,7 @@ def test_sbc_with_custom_simulator(model, simulator):
     hasattr(bmb, "__version__") and tuple(map(int, bmb.__version__.split("."))) <= (0, 14),
     reason="requires bambi version > 0.14",
 )
-def test_sbc_bambi_with_custom_simulator():
+def test_sbc_bambi_with_custom_simulator(bmb_model):
     sbc = simuk.SBC(
         bmb_model,
         num_simulations=10,
@@ -144,43 +115,45 @@ def test_sbc_bambi_with_custom_simulator():
 
 
 @pytest.mark.parametrize(
-    "model,simulator",
+    "model_name",
     [
         # Case 1: Both simulator function and observed variables present
-        (eight_schools_cauchy_prior, centered_eight_simulator),
+        ("numpyro_eight_schools_cauchy_prior"),
         # Case 2: Only simulator function present
-        (eight_schools_cauchy_prior_no_observed, centered_eight_simulator),
+        ("numpyro_eight_schools_cauchy_prior_no_observed"),
     ],
 )
-def test_sbc_numpyro_with_custom_simulator(model, simulator):
+def test_sbc_numpyro_with_custom_simulator(model_name, centered_eight_simulator, numpyro_eight_schools_cauchy_prior_data, request):
+    model = request.getfixturevalue(model_name)
+
     sbc = simuk.SBC(
         NUTS(model),
-        data_dir={"J": 8, "sigma": sigma, "y": data},
+        data_dir=numpyro_eight_schools_cauchy_prior_data,
         num_simulations=10,
         sample_kwargs={"num_warmup": 50, "num_samples": 25},
-        simulator=simulator,
+        simulator=centered_eight_simulator,
     )
     sbc.run_simulations()
     assert "prior_sbc" in sbc.simulations
 
 
 # --- Error handling tests with custom simulators ---
-def test_sbc_fail_no_observed_variable():
+def test_sbc_fail_no_observed_variable(pm_centered_eight_no_observed_model):
     with pytest.raises(ValueError, match="no observed variables"):
         simuk.SBC(
-            centered_eight_no_observed,
+            pm_centered_eight_no_observed_model,
             num_simulations=10,
             sample_kwargs={"draws": 5, "tune": 5},
         )
 
 
-def test_sbc_numpyro_fail_no_observed_variable():
+def test_sbc_numpyro_fail_no_observed_variable(numpyro_eight_schools_cauchy_prior_no_observed, numpyro_eight_schools_cauchy_prior_no_observed_data):
     # Note: factor variables are catalogued as 'observed_vars' in NumPyro
     # therefore, we cannot raise an early exception with an informative message
     with pytest.raises(ValueError):
         sbc = simuk.SBC(
-            NUTS(eight_schools_cauchy_prior_no_observed),
-            data_dir={"J": 8, "sigma": sigma, "y": data},
+            NUTS(numpyro_eight_schools_cauchy_prior_no_observed),
+            data_dir=numpyro_eight_schools_cauchy_prior_no_observed_data,
             num_simulations=10,
             sample_kwargs={"num_warmup": 50, "num_samples": 25},
         )
@@ -197,23 +170,25 @@ def test_sbc_numpyro_missing_observed_data():
         )
 
 
-def test_sbc_numpyro_empty_observed_data():
+def test_sbc_numpyro_empty_observed_data(numpyro_eight_schools_cauchy_prior, numpyro_eight_schools_cauchy_prior_data):
+    data = numpyro_eight_schools_cauchy_prior_data.copy()
+    data.pop("y", None)
     with pytest.raises(ValueError, match="no observed variables"):
         simuk.SBC(
-            NUTS(eight_schools_cauchy_prior),
-            data_dir={"J": 8, "sigma": sigma},
+            NUTS(numpyro_eight_schools_cauchy_prior),
+            data_dir=data,
             num_simulations=10,
             sample_kwargs={"num_warmup": 10, "num_samples": 5},
         )
 
 
-def test_sbc_numpyro_simulator_no_conditionable_observed():
+def test_sbc_numpyro_simulator_no_conditionable_observed(numpyro_eight_schools_cauchy_prior, numpyro_eight_schools_cauchy_prior_data):
     def bad_simulator(**kwargs):
         return {"not_a_param": np.array([0.0])}
 
     sbc = simuk.SBC(
-        NUTS(eight_schools_cauchy_prior),
-        data_dir={"J": 8, "sigma": sigma, "y": data},
+        NUTS(numpyro_eight_schools_cauchy_prior),
+        data_dir=numpyro_eight_schools_cauchy_prior_data,
         num_simulations=5,
         sample_kwargs={"num_warmup": 10, "num_samples": 5},
         simulator=bad_simulator,
@@ -228,19 +203,19 @@ def test_sbc_invalid_model_type():
         simuk.SBC(object())
 
 
-def test_sbc_simulator_not_callable():
+def test_sbc_simulator_not_callable(pm_centered_eight_model):
     with pytest.raises(ValueError, match="simulator should be a function or None"):
-        simuk.SBC(centered_eight, simulator=123)
+        simuk.SBC(pm_centered_eight_model, simulator=123)
 
 
-def test_sbc_transform_not_callable_init():
+def test_sbc_transform_not_callable_init(pm_centered_eight_model):
     with pytest.raises(ValueError, match="`transform` should be a function or None"):
-        simuk.SBC(centered_eight, transform="not callable")
+        simuk.SBC(pm_centered_eight_model, transform="not callable")
 
 
-def test_compute_rank_statistics_requires_keep_fits():
+def test_compute_rank_statistics_requires_keep_fits(pm_centered_eight_model):
     sbc = simuk.SBC(
-        centered_eight,
+        pm_centered_eight_model,
         num_simulations=1,
         sample_kwargs={"draws": 5, "tune": 5},
         keep_fits=False,
@@ -249,9 +224,9 @@ def test_compute_rank_statistics_requires_keep_fits():
         sbc.compute_rank_statistics()
 
 
-def test_compute_rank_statistics_transform_not_callable():
+def test_compute_rank_statistics_transform_not_callable(pm_centered_eight_model):
     sbc = simuk.SBC(
-        centered_eight,
+        pm_centered_eight_model,
         num_simulations=1,
         sample_kwargs={"draws": 5, "tune": 5},
     )
@@ -259,9 +234,9 @@ def test_compute_rank_statistics_transform_not_callable():
         sbc.compute_rank_statistics(transform=123)
 
 
-def test_compute_rank_statistics_recompute_with_new_transform():
+def test_compute_rank_statistics_recompute_with_new_transform(pm_centered_eight_model):
     sbc = simuk.SBC(
-        centered_eight,
+        pm_centered_eight_model,
         num_simulations=2,
         sample_kwargs={"draws": 5, "tune": 5},
     )
@@ -281,9 +256,9 @@ def test_compute_rank_statistics_recompute_with_new_transform():
     assert sbc._simulations_complete == 2
 
 
-def test_sbc_run_simulations_keep_fits_false():
+def test_sbc_run_simulations_keep_fits_false(pm_centered_eight_model):
     sbc = simuk.SBC(
-        centered_eight,
+        pm_centered_eight_model,
         num_simulations=2,
         sample_kwargs={"draws": 5, "tune": 5},
         keep_fits=False,
@@ -292,10 +267,10 @@ def test_sbc_run_simulations_keep_fits_false():
     assert "prior_sbc" in sbc.simulations
 
 
-def test_sbc_numpyro_run_simulations_keep_fits_false():
+def test_sbc_numpyro_run_simulations_keep_fits_false(numpyro_eight_schools_cauchy_prior, numpyro_eight_schools_cauchy_prior_data):
     sbc = simuk.SBC(
-        NUTS(eight_schools_cauchy_prior),
-        data_dir={"J": 8, "sigma": sigma, "y": data},
+        NUTS(numpyro_eight_schools_cauchy_prior),
+        data_dir=numpyro_eight_schools_cauchy_prior_data,
         num_simulations=2,
         sample_kwargs={"num_warmup": 10, "num_samples": 5},
         keep_fits=False,
