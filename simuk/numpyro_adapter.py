@@ -4,7 +4,8 @@ from typing import NamedTuple
 
 import jax
 import numpy as np
-from arviz_base import from_numpyro
+import xarray as xr
+from arviz_base import dict_to_dataset, extract, from_numpyro
 from numpyro.handlers import seed, trace
 from numpyro.infer import MCMC, Predictive
 
@@ -24,13 +25,14 @@ class NumpyroAdapter(BackendAdapter):
     def compute_single_rank(self, transform, name, posterior, simulation_idx, ref_params):
         transformed_posterior = np.array(
             [
-                transform(name, posterior[name].sel(chain=0).isel(draw=i).values)
-                for i in range(posterior[name].sizes["draw"])
+                transform(name, posterior[name].isel(sample=i).values)
+                for i in range(posterior[name].sizes["sample"])
             ]
         )
-        return (transformed_posterior < transform(name, ref_params[name][simulation_idx])).sum(
-            axis=0
-        )
+        return (
+            transformed_posterior
+            < transform(name, ref_params[name].isel(sample=simulation_idx).values)
+        ).sum(axis=0)
 
     def get_posterior_predictive_samples(self, num_simulations, seeds, progress_bar):
         raise NotImplementedError("Posterior SBC is not implemented for numpyro")
@@ -51,9 +53,15 @@ class NumpyroAdapter(BackendAdapter):
                 params = dict(zip(prior.keys(), vals))
                 params["seed"] = seeds[i]
                 results.append(self.simulator(**params))
-            prior_pred = {key: [result[key] for result in results] for key in results[0]}
+            prior_pred = {
+                key: np.asarray([result[key] for result in results]) for key in results[0]
+            }
         else:
             prior_pred = {k: v for k, v in samples.items() if k in self.observed_model_vars}
+
+        prior = dict_to_dataset(prior, sample_dims=["sample"])
+        prior_pred = dict_to_dataset(prior_pred, sample_dims=["sample"])
+
         return prior, prior_pred
 
     def _extract_model_info(self, single_seed):
@@ -126,14 +134,14 @@ class NumpyroAdapter(BackendAdapter):
             if k in simulation_parameters.observed_model_vars
         }
         mcmc.run(rng_seed, **free_vars_data, **prior_predictive_args)
-        return from_numpyro(mcmc)["posterior"]
+        return extract(from_numpyro(mcmc), group="posterior", keep_dataset=True)
 
     def subsample(self, ref_params, predictive, seed, size):
         log.info("Slicing isn't implemented for numpyro, skipping it.")
         return ref_params, predictive
 
     def replicate(self, predictive, idx, simulation_params):
-        return {k: v[idx] for k, v in predictive.items()}
+        return {k: v.isel(sample=idx).values for k, v in predictive.items()}
 
     def stop_if_cant_run_without_simulator(self):
         if not self.observed_model_vars:
@@ -154,4 +162,4 @@ class NumpyroSimulationParams(NamedTuple):
     observed_vars: list[str]
     observed_model_vars: list[str]
     var_names: list[str]
-    ref_params: dict[str, jax.Array]
+    ref_params: xr.Dataset
