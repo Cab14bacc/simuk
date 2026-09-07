@@ -103,6 +103,11 @@ def test_sbc_numpyro_with_observed_data():
     )
     sbc.run_simulations()
     assert "prior_sbc" in sbc.simulations
+    # check for dim names after the renaming in get_prior_predictive_samples,
+    # currently dims are a wrapped version of a list of dim names, can't be compared directly.
+    assert list(sbc.posteriors.sel(simulation=0).dims) == list(
+        sbc.kept_simulation_params.ref_params.dims
+    )
 
 
 # --- Tests with custom simulators ---

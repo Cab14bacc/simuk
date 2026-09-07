@@ -46,7 +46,9 @@ class NumpyroAdapter(BackendAdapter):
             if k not in self.observed_vars and k in self.model_params
         }
         samples = predictive(jax.random.PRNGKey(seeds[0]), **free_vars_data)
+
         prior = {k: v for k, v in samples.items() if k not in self.observed_vars}
+
         if self.simulator:
             results = []
             for i, vals in enumerate(zip(*prior.values())):
@@ -56,11 +58,12 @@ class NumpyroAdapter(BackendAdapter):
             prior_pred = {
                 key: np.asarray([result[key] for result in results]) for key in results[0]
             }
+            prior_pred = dict_to_dataset(prior_pred, sample_dims=["sample"])
         else:
             prior_pred = {k: v for k, v in samples.items() if k in self.observed_model_vars}
+            prior_pred = dict_to_dataset(prior_pred, sample_dims=["sample"], dims=self.dims_by_site)
 
-        prior = dict_to_dataset(prior, sample_dims=["sample"])
-        prior_pred = dict_to_dataset(prior_pred, sample_dims=["sample"])
+        prior = dict_to_dataset(prior, sample_dims=["sample"], dims=self.dims_by_site)
 
         return prior, prior_pred
 
@@ -86,6 +89,23 @@ class NumpyroAdapter(BackendAdapter):
         self.observed_model_vars = [
             name for name in self.observed_vars if name in self.model_params
         ]
+
+        # loop through the trace and pull the batch dim and event dim names
+        # This is needed such that the prior and prior predictive samples have
+        # the same dim names as the posterior samples. The prior samples from Predictive
+        # does not infer dim names.
+        # This mirrors arviz_base.from_numpyro, where it infers the dim names,
+        # check out infer_dims in arviz_base.io_numpyro.
+        self.dims_by_site = {}
+        for name, site in tr.items():
+            batch_dims = [
+                frame.name for frame in sorted(site["cond_indep_stack"], key=lambda x: x.dim)
+            ]
+            event_dims = list(site.get("infer", {}).get("event_dims", []))
+
+            # save the dim names leading with batch dims
+            if site["type"] in ["sample", "deterministic"] and (batch_dims or event_dims):
+                self.dims_by_site[name] = batch_dims + event_dims
 
     def simulation_params_from_simulator(self, ref_params, predictive):
         observed_vars = list(predictive.keys())
