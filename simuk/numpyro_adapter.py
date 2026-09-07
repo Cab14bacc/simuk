@@ -6,6 +6,7 @@ import jax
 import numpy as np
 import xarray as xr
 from arviz_base import dict_to_dataset, extract, from_numpyro
+from arviz_base.io_numpyro import infer_dims
 from numpyro.handlers import seed, trace
 from numpyro.infer import MCMC, Predictive
 
@@ -94,18 +95,8 @@ class NumpyroAdapter(BackendAdapter):
         # This is needed such that the prior and prior predictive samples have
         # the same dim names as the posterior samples. The prior samples from Predictive
         # does not infer dim names.
-        # This mirrors arviz_base.from_numpyro, where it infers the dim names,
-        # check out infer_dims in arviz_base.io_numpyro.
-        self.dims_by_site = {}
-        for name, site in tr.items():
-            batch_dims = [
-                frame.name for frame in sorted(site["cond_indep_stack"], key=lambda x: x.dim)
-            ]
-            event_dims = list(site.get("infer", {}).get("event_dims", []))
-
-            # save the dim names leading with batch dims
-            if site["type"] in ["sample", "deterministic"] and (batch_dims or event_dims):
-                self.dims_by_site[name] = batch_dims + event_dims
+        # This uses the same helper ``from_numpyro`` applies to the posterior (via ``infer_dims``)
+        self.dims_by_site = infer_dims(self.numpyro_model.model, model_kwargs=self.data_dir)
 
     def simulation_params_from_simulator(self, ref_params, predictive):
         observed_vars = list(predictive.keys())
