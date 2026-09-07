@@ -74,7 +74,7 @@ We see that due to the funnel neck in the eight schools model, the inference alg
 
 ![Prior Simulation based calibration plots, parameter recovery](docs/examples/img/prior_sbc_parameter_recovery.png)
 
-This indicates that the inference algorithm is struggling to sample the posterior, as indicated by the low coverage for the parameter $\tau$.
+This indicates that the inference algorithm is struggling to sample the posterior, as indicated by the low coverage for the parameter $\tau$. From this we can also see the shape of the samples, and we clearly see that the posterior is stuck in the funnel neck.
 
 
 ### Posterior SBC
@@ -138,7 +138,7 @@ covariates and coords in an `update_data` callback to match the augmented data.
 
 ![Posterior Simulation based calibration plots, ecdf](docs/examples/img/posterior_sbc.png)
 
-We see that the funnel neck in the eight schools model seems to be avoided and the inference algorithm is well-calibrated locally for the observed data, as indicated by the absence of red dots.
+We see that the funnel neck in the eight schools model seems to be avoided and the inference algorithm is better well-calibrated locally for the observed data, but still struggles to sample the posterior.
 
 4. We could also plot the parameter recovery plot.
 
@@ -147,7 +147,7 @@ We see that the funnel neck in the eight schools model seems to be avoided and t
     ```
 ![Posterior Simulation based calibration plots, parameter recovery](docs/examples/img/posterior_sbc_parameter_recovery.png)
 
-We see that despite the ecdf graph showing an uniform distribution, the inference algorithm is still struggling to sample the posterior, as indicated by the low coverage for the parameter $\tau$.
+The inference algorithm is struggling to sample the posterior, as indicated by the low coverage for the parameter $\tau$.
 
 
 ## References
