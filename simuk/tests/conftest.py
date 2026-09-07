@@ -1,11 +1,12 @@
-import pytest
-import pymc as pm
+import jax.numpy as jnp
 import numpy as np
 import numpyro
 import numpyro.distributions as dist
-import jax.numpy as jnp
+import pymc as pm
+import pytest
 
 default_rng = np.random.default_rng(1234)
+
 
 @pytest.fixture(scope="session")
 def general_obs_data():
@@ -21,6 +22,7 @@ def general_obs_data():
 def pm_simple_obs():
     return default_rng.normal(2.0, 1.0, size=20)
 
+
 @pytest.fixture(scope="session")
 def pm_centered_eight_model(general_obs_data):
     """Fixture for the centered eight schools model."""
@@ -30,9 +32,10 @@ def pm_centered_eight_model(general_obs_data):
         mu = pm.Normal("mu", mu=0, sigma=5)
         tau = pm.HalfCauchy("tau", beta=5)
         theta = pm.Normal("theta", mu=mu, sigma=tau, shape=8)
-        y_obs = pm.Normal("y", mu=theta, sigma=sigma, observed=y)
+        pm.Normal("y", mu=theta, sigma=sigma, observed=y)
 
     return model
+
 
 @pytest.fixture(scope="session")
 def pm_centered_eight_no_observed_model(general_obs_data):
@@ -43,7 +46,7 @@ def pm_centered_eight_no_observed_model(general_obs_data):
         mu = pm.Normal("mu", mu=0, sigma=5)
         tau = pm.HalfCauchy("tau", beta=5)
         theta = pm.Normal("theta", mu=mu, sigma=tau, shape=8)
-        y_obs = pm.Normal("y", mu=theta, sigma=sigma)
+        pm.Normal("y", mu=theta, sigma=sigma)
 
     return model
 
@@ -57,6 +60,7 @@ def pm_simple_model(pm_simple_obs):
         pm.Normal("y", mu=mu, sigma=sigma, observed=y_data)
 
     return model
+
 
 @pytest.fixture(scope="session")
 def pm_simple_model_trace(pm_simple_model):
@@ -84,7 +88,9 @@ def numpyro_eight_schools_cauchy_prior():
         with numpyro.plate("J", J):
             theta = numpyro.sample("theta", dist.Normal(mu, tau))
         numpyro.sample("y", dist.Normal(theta, sigma), obs=y)
+
     return _numpyro_eight_schools_cauchy_prior
+
 
 @pytest.fixture(scope="session")
 def numpyro_eight_schools_cauchy_prior_no_observed():
@@ -96,10 +102,17 @@ def numpyro_eight_schools_cauchy_prior_no_observed():
         if y is not None:
             log_likelihood = jnp.sum(dist.Normal(theta, sigma).log_prob(y))
             numpyro.factor("custom_likelihood", log_likelihood)
+
     return _numpyro_eight_schools_cauchy_prior_no_observed
+
 
 @pytest.fixture(scope="session")
 def numpyro_eight_schools_cauchy_prior_data(general_obs_data):
     y, sigma = general_obs_data
     return {"J": 8, "sigma": sigma, "y": y}
 
+
+@pytest.fixture(scope="session")
+def numpyro_eight_schools_cauchy_prior_no_observed_data(general_obs_data):
+    _, sigma = general_obs_data
+    return {"J": 8, "sigma": sigma}

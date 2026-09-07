@@ -18,6 +18,7 @@ default_rng = np.random.default_rng(1234)
 x_obs_reg = np.linspace(0, 1, 20)
 y_obs_reg = 1.5 * x_obs_reg + default_rng.normal(0, 0.5, size=20)
 
+
 # ---------------------------------------------------------------------------
 # PyMC models and traces
 # ---------------------------------------------------------------------------
@@ -32,6 +33,7 @@ def pm_reg_model():
         pm.Normal("y", mu=slope * x, sigma=sigma_reg, observed=y_data, dims="obs_id")
     return reg_model
 
+
 @pytest.fixture(scope="module")
 def pm_reg_model_trace(pm_reg_model):
     with pm_reg_model:
@@ -45,12 +47,14 @@ def pm_reg_model_trace(pm_reg_model):
         )
     return trace_reg
 
+
 # ---------------------------------------------------------------------------
 # Custom simulator and callback functions
 # ---------------------------------------------------------------------------
 def simulator_simple(mu, sigma, seed, **kwargs):
     rng = np.random.default_rng(seed)
     return {"y": rng.normal(mu, sigma, size=20)}
+
 
 def augment_observed_general(model, observed_data, replicated_data, idx):
     # Custom: only keep the last 10 original obs + all replicated
@@ -59,8 +63,10 @@ def augment_observed_general(model, observed_data, replicated_data, idx):
         for var in replicated_data
     }
 
+
 def transform_general(param_name, param_value):
     return param_value**2
+
 
 def update_data_reg(model, augmented_data, idx):
     """Resize covariates and coords to match augmented data."""
@@ -71,13 +77,11 @@ def update_data_reg(model, augmented_data, idx):
         coords={"obs_id": np.arange(n_aug)},
     )
 
+
 # ---------------------------------------------------------------------------
 # Tests with observed variables
 # ---------------------------------------------------------------------------
-@pytest.mark.parametrize(
-    "model_name,trace_name", 
-    [("pm_simple_model", "pm_simple_model_trace")]
-)
+@pytest.mark.parametrize("model_name,trace_name", [("pm_simple_model", "pm_simple_model_trace")])
 def test_posterior_sbc_with_observed_data(model_name, trace_name, request):
     """Basic posterior SBC with a PyMC model."""
     model = request.getfixturevalue(model_name)
@@ -95,8 +99,7 @@ def test_posterior_sbc_with_observed_data(model_name, trace_name, request):
 
 
 @pytest.mark.parametrize(
-    "model_name,trace_name,update_data", 
-    [("pm_reg_model", "pm_reg_model_trace", update_data_reg)]
+    "model_name,trace_name,update_data", [("pm_reg_model", "pm_reg_model_trace", update_data_reg)]
 )
 def test_posterior_sbc_with_update_data(model_name, trace_name, update_data, request):
     """Posterior SBC with dims/coords and update_data callback."""
@@ -119,9 +122,10 @@ def test_posterior_sbc_with_update_data(model_name, trace_name, update_data, req
 # Tests with custom simulator and callbacks
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
-    "model_name,trace_name,simulator", 
-    [("pm_simple_model", "pm_simple_model_trace", simulator_simple)]
+    "model_name,trace_name,simulator",
+    [("pm_simple_model", "pm_simple_model_trace", simulator_simple)],
 )
 def test_posterior_sbc_with_custom_simulator(model_name, trace_name, simulator, request):
     """Posterior SBC using a custom simulator function."""
