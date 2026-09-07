@@ -217,6 +217,9 @@ class SBC:
         progress_bar=True,
     ):
         self.num_simulations = num_simulations
+        if num_simulations <= 0:
+            raise ValueError("`num_simulations` must be a positive integer")
+
         self.seed = seed
         self._seeds = self._get_seeds()
 
