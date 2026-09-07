@@ -532,9 +532,7 @@ def plot_parameter_recovery(
     # Tick labels
     ticklabels_kwargs = get_visual_kwargs(visuals, "ticklabels")
     if ticklabels_kwargs is not False:
-        _, _, ticklabels_ignore = filter_aes(
-            pc, aes_by_visuals, "ticklabels", ["simulation"]
-        )
+        _, _, ticklabels_ignore = filter_aes(pc, aes_by_visuals, "ticklabels", ["simulation"])
         ticklabels_kwargs.setdefault("size", 10)
         pc.map(
             azp.visuals.ticklabel_props,
