@@ -130,7 +130,7 @@ class SBC:
     keep_fits : bool, default True
         Whether to store posteriors to allow re-evaluation of rank statistics using
         a different quantity (``compute_rank_statistics``) without needing to run the
-        simulations again. ``self.posteriors`` will be an xarray Dataset with a 
+        simulations again. ``self.posteriors`` will be an xarray Dataset with a
         ``simulation`` dimension of length ``num_simulations``, and a ``sample`` dimension
         of the same length as the number of posterior samples in each simulation.
 
